@@ -1,58 +1,42 @@
 #!/usr/bin/env python3
 """
-Script  that provides some stats about Nginx logs stored in MongoDB
+Improved 12-log_stats.py by adding the top 10 of the most present IPs
 """
+
 from pymongo import MongoClient
 
-if __name__ == '__main__':
-    """Prints the log stats in nginx collection"""
+
+def log_stats():
     client = MongoClient('mongodb://127.0.0.1:27017')
-    logs = client.logs.nginx
+    db = client.logs
+    collection = db.nginx
 
-    # number of logs
-    count = logs.count_documents({})
+    # Total number of logs
+    log_count = collection.count_documents({})
+    print(f"{log_count} logs")
 
-    get = logs.count_documents({"method": "GET"})
-    post = logs.count_documents({"method": "POST"})
-    put = logs.count_documents({"method": "PUT"})
-    patch = logs.count_documents({"method": "PATCH"})
-    delete = logs.count_documents({"method": "DELETE"})
+    # Methods count
+    methods = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+    print("Methods:")
+    for method in methods:
+        count = collection.count_documents({"method": method})
+        print(f"\tmethod {method}: {count}")
 
-    doc = logs.count_documents({"method": "GET", "path": "/status"})
+    # Status check
+    status_check_count = collection.count_documents({"path": "/status"})
+    print(f"{status_check_count} status check")
 
-    print(
-        f"{count} logs\n"
-        "Methods:\n"
-        f"\tmethod GET: {get}\n"
-        f"\tmethod POST: {post}\n"
-        f"\tmethod PUT: {put}\n"
-        f"\tmethod PATCH: {patch}\n"
-        f"\tmethod DELETE: {delete}\n"
-        f"{doc} status check"
-    )
-
+    # Top 10 most present IPs
     print("IPs:")
-    # get top ten most common IPs
-    top_ten_ips = [
-        log for log in logs.aggregate(
-            [
-                {
-                    "$group": {
-                        "_id": "$ip",
-                        "count": {"$sum": 1}
-                    }
-                },
-                {
-                    "$sort": {"count": -1}
-                },
-                {
-                    "$limit": 10
-                }
-            ]
-        )
+    pipeline = [
+        {"$group": {"_id": "$ip", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
     ]
+    top_ips = collection.aggregate(pipeline)
+    for ip in top_ips:
+        print(f"\t{ip['_id']}: {ip['count']}")
 
-    for value in top_ten_ips:
-        ip = value["_id"]
-        count = value["count"]
-        print(f"\t{ip}: {count}")
+
+if __name__ == "__main__":
+    log_stats()
