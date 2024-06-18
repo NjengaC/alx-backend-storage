@@ -1,42 +1,68 @@
 #!/usr/bin/env python3
+"""This module contains a function that update a document in a collection
 """
-Improved 12-log_stats.py by adding the top 10 of the most present IPs
-"""
-
 from pymongo import MongoClient
+import pymongo
 
 
-def log_stats():
-    client = MongoClient('mongodb://127.0.0.1:27017')
-    db = client.logs
-    collection = db.nginx
+def display():
+    """update a document into a collection"""
+    client = MongoClient()
+    collection = client.logs.nginx
 
-    # Total number of logs
-    log_count = collection.count_documents({})
-    print(f"{log_count} logs")
+    # Defining the conditions
+    conditions = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 
-    # Methods count
-    methods = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+    values = []
+    # Create pipeline and their match condition
+    for condition in conditions:
+        pipeline = [
+            {
+                "$match": {"method": condition},
+                },
+            {
+                "$count": f"occurrences"
+            }]
+        result = list(collection.aggregate(pipeline))
+        data = result[0][f"occurrences"] if result else 0
+        values.append(data)
+
+    # Create a pipeline for grouping ips
+    newdata = collection.aggregate([
+      {
+          "$group": {
+              "_id": "$ip",
+              "count_me": {"$sum": 1}
+              }
+      },
+      {
+          "$project": {
+              "_id": 0,
+              "ip": "$_id",
+              "count_me": 1
+          }
+      },
+      {
+          "$sort": {
+              "count_me": pymongo.DESCENDING,
+          }
+      }
+    ])
+
+    stat = len(list(collection.find({"path": "/status"})))
+    print(f'{len(list(collection.find()))} logs')
     print("Methods:")
-    for method in methods:
-        count = collection.count_documents({"method": method})
-        print(f"\tmethod {method}: {count}")
+    for idx, cond in enumerate(conditions):
+        print(f'\tmethod {cond}: {values[idx]}')
 
-    # Status check
-    status_check_count = collection.count_documents({"path": "/status"})
-    print(f"{status_check_count} status check")
+    print(f"{stat} status check")
 
-    # Top 10 most present IPs
+    # display top 10 ips
     print("IPs:")
-    pipeline = [
-        {"$group": {"_id": "$ip", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 10}
-    ]
-    top_ips = collection.aggregate(pipeline)
-    for ip in top_ips:
-        print(f"\t{ip['_id']}: {ip['count']}")
+    newdata = list(newdata)
+    for dat in range(min(10, len(newdata))):
+        print(f'\t{newdata[dat]["ip"]}: {newdata[dat]["count_me"]}')
 
 
-if __name__ == "__main__":
-    log_stats()
+if __name__ == '__main__':
+    display()
