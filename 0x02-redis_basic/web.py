@@ -1,41 +1,37 @@
-#!/usr/bin/env python3
-
-"""This module implement a cache storage for web"""
-import redis
 import requests
-from functools import wraps
-from typing import Callable
-import time
+import redis
+import functools
+
+# Connect to the local Redis server
+r = redis.Redis(host='localhost', port=6379, db=0)
 
 
-def track_url(func: Callable) -> Callable:
-    """Track url of a web app"""
+def cache_with_expiration(expiration: int):
+    def decorator_get_page(func):
+        @functools.wraps(func)
+        def wrapper_get_page(url):
+            # Check if the URL content is cached
+            cached_content = r.get(url)
 
-    def track(*args: str) -> str:
-        """Track url now"""
-        key: str = f"count:{args[0]}"
-        r = redis.Redis()
-        r.incr(key)
-        r.setex(args[0], 10, 'cached_data')
-        r.expire(key, 10)
-        result = func(args[0])
-        return result
-    return track
+            if cached_content:
+                r.incr(f"count:{url}")
+                return cached_content.decode('utf-8')
+            else:
+                # If content is not cached, fetch the content from the URL
+                content = func(url)
+
+                # Cache the content with an expiration time
+                r.setex(url, expiration, content)
+
+                # Initialize the access count to 1
+                r.set(f"count:{url}", 1)
+
+                return content
+        return wrapper_get_page
+    return decorator_get_page
 
 
-@track_url
+@cache_with_expiration(expiration=10)
 def get_page(url: str) -> str:
-    """get a page from a website"""
-    resp = requests.get(url)
-    return str(resp.text)
-
-
-if __name__ == '__main__':
-    r = redis.Redis()
-    get_page('http://slowwly.robertomurray.co.uk')
-    get_page('http://slowwly.robertomurray.co.uk')
-    get_page('http://slowwly.robertomurray.co.uk')
-    print(r.get('count:http://slowwly.robertomurray.co.uk'))
-    time.sleep(12)
-    get_page('http://slowwly.robertomurray.co.uk')
-    print(r.get('count:http://slowwly.robertomurray.co.uk'))
+    response = requests.get(url)
+    return response.text
