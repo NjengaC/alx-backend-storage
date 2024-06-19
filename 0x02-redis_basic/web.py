@@ -1,37 +1,51 @@
-import requests
+#!/usr/bin/env python3
+
+"""This module implements a cache storage for web pages."""
 import redis
-import functools
+import requests
+from functools import wraps
+from typing import Callable
+import time
 
-# Connect to the local Redis server
-r = redis.Redis(host='localhost', port=6379, db=0)
-
-
-def cache_with_expiration(expiration: int):
-    def decorator_get_page(func):
-        @functools.wraps(func)
-        def wrapper_get_page(url):
-            # Check if the URL content is cached
-            cached_content = r.get(url)
-
-            if cached_content:
-                r.incr(f"count:{url}")
-                return cached_content.decode('utf-8')
-            else:
-                # If content is not cached, fetch the content from the URL
-                content = func(url)
-
-                # Cache the content with an expiration time
-                r.setex(url, expiration, content)
-
-                # Initialize the access count to 1
-                r.set(f"count:{url}", 1)
-
-                return content
-        return wrapper_get_page
-    return decorator_get_page
+# Initialize Redis connection
+r = redis.Redis()
 
 
-@cache_with_expiration(expiration=10)
+def track_url(func: Callable) -> Callable:
+    """Track URL accesses and cache the result with expiration."""
+
+    @wraps(func)
+    def wrapper(url: str) -> str:
+        """Track URL and cache the result."""
+        count_key = f"count:{url}"
+        cached_content = r.get(url)
+
+        if cached_content:
+            r.incr(count_key)
+            return cached_content.decode('utf-8')
+
+        r.incr(count_key)
+        result = func(url)
+        r.setex(url, 10, result)
+        r.expire(count_key, 10)
+        return result
+
+    return wrapper
+
+
+@track_url
 def get_page(url: str) -> str:
-    response = requests.get(url)
-    return response.text
+    """Get a page from a website."""
+    resp = requests.get(url)
+    return resp.text
+
+
+if __name__ == '__main__':
+    url = 'http://slowwly.robertomurray.co.uk/delay/5000/url/http://www.google.co.uk'
+    print(get_page(url))
+    print(get_page(url))
+    print(get_page(url))
+    print(f"Access count: {r.get(f'count:{url}').decode('utf-8')}")
+    time.sleep(12)
+    print(get_page(url))
+    print(f"Access count: {r.get(f'count:{url}').decode('utf-8')}")
