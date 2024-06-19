@@ -1,38 +1,41 @@
 #!/usr/bin/env python3
-'''A module with tools for request caching and tracking.
-'''
+
+"""This module implement a cache storage for web"""
 import redis
 import requests
 from functools import wraps
 from typing import Callable
+import time
 
 
-redis_store = redis.Redis()
-'''The module-level Redis instance.
-'''
+def track_url(func: Callable) -> Callable:
+    """Track url of a web app"""
 
-
-def data_cacher(method: Callable) -> Callable:
-    '''Caches the output of fetched data.
-    '''
-    @wraps(method)
-    def invoker(url) -> str:
-        '''The wrapper function for caching the output.
-        '''
-        redis_store.incr(f'count:{url}')
-        result = redis_store.get(f'result:{url}')
-        if result:
-            return result.decode('utf-8')
-        result = method(url)
-        redis_store.set(f'count:{url}', 0)
-        redis_store.setex(f'result:{url}', 10, result)
+    def track(*args: str) -> str:
+        """Track url now"""
+        key: str = f"count:{args[0]}"
+        r = redis.Redis()
+        r.incr(key)
+        r.setex(args[0], 10, 'cached_data')
+        r.expire(key, 10)
+        result = func(args[0])
         return result
-    return invoker
+    return track
 
 
-@data_cacher
+@track_url
 def get_page(url: str) -> str:
-    '''Returns the content of a URL after caching the request's response,
-    and tracking the request.
-    '''
-    return requests.get(url).text
+    """get a page from a website"""
+    resp = requests.get(url)
+    return str(resp.text)
+
+
+if __name__ == '__main__':
+    r = redis.Redis()
+    get_page('http://slowwly.robertomurray.co.uk')
+    get_page('http://slowwly.robertomurray.co.uk')
+    get_page('http://slowwly.robertomurray.co.uk')
+    print(r.get('count:http://slowwly.robertomurray.co.uk'))
+    time.sleep(12)
+    get_page('http://slowwly.robertomurray.co.uk')
+    print(r.get('count:http://slowwly.robertomurray.co.uk'))
