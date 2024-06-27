@@ -1,58 +1,30 @@
 #!/usr/bin/env python3
-"""
-Script  that provides some stats about Nginx logs stored in MongoDB
-"""
+""" Defines a program that prints nginx stats in a mongo db """
+
 from pymongo import MongoClient
 
-if __name__ == '__main__':
-    """Prints the log stats in nginx collection"""
-    client = MongoClient('mongodb://127.0.0.1:27017')
-    logs = client.logs.nginx
 
-    # number of logs
-    count = logs.count_documents({})
+if __name__ == "__main__":
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['logs']
+    collection = db['nginx']
+    all = [i for i in collection.find()]
+    ips = collection.aggregate([{"$group": {"_id": "$ip", "num": {"$sum": 1}}},
+                                {"$sort": {"num": -1}}])
+    ips = [i for i in ips][:10]  # get the top 10
 
-    get = logs.count_documents({"method": "GET"})
-    post = logs.count_documents({"method": "POST"})
-    put = logs.count_documents({"method": "PUT"})
-    patch = logs.count_documents({"method": "PATCH"})
-    delete = logs.count_documents({"method": "DELETE"})
+    methods = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 
-    doc = logs.count_documents({"method": "GET", "path": "/status"})
+    print(f"{len(all)} logs")
+    print("Methods:")
 
-    print(
-        f"{count} logs\n"
-        "Methods:\n"
-        f"\tmethod GET: {get}\n"
-        f"\tmethod POST: {post}\n"
-        f"\tmethod PUT: {put}\n"
-        f"\tmethod PATCH: {patch}\n"
-        f"\tmethod DELETE: {delete}\n"
-        f"{doc} status check"
-    )
+    for i in methods:
+        print("\tmethod {}: {}"
+              .format(i, len([j for j in all if j["method"] == i])))
+
+    print("{} status check".format(len(list(collection.find({"method": "GET",
+                                            "path": "/status"})))))
 
     print("IPs:")
-    # get top ten most common IPs
-    top_ten_ips = [
-        log for log in logs.aggregate(
-            [
-                {
-                    "$group": {
-                        "_id": "$ip",
-                        "count": {"$sum": 1}
-                    }
-                },
-                {
-                    "$sort": {"count": -1}
-                },
-                {
-                    "$limit": 10
-                }
-            ]
-        )
-    ]
-
-    for value in top_ten_ips:
-        ip = value["_id"]
-        count = value["count"]
-        print(f"\t{ip}: {count}")
+    for i in ips:
+        print('\t{}: {}'.format(i["_id"], i["num"]))
