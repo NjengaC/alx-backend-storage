@@ -1,53 +1,37 @@
 #!/usr/bin/env python3
+''' Defines module '''
 
-"""This module implements a cache storage for web pages."""
 import redis
 import requests
 from functools import wraps
 from typing import Callable
-import time
-
-# Initialize Redis connection
-r = redis.Redis()
 
 
-def track_url(func: Callable) -> Callable:
-    """Track URL accesses and cache the result with expiration."""
+redis_store = redis.Redis()
 
-    @wraps(func)
-    def wrapper(url: str) -> str:
-        """Track URL and cache the result."""
-        count_key = f"count:{url}"
-        cached_content = r.get(url)
 
-        if cached_content:
-            r.incr(count_key)
-            return cached_content.decode('utf-8')
+def data_cacher(method: Callable) -> Callable:
+    '''Caches the output of fetched data.
+    '''
 
-        r.incr(count_key)
-        result = func(url)
-        r.setex(url, 10, result)
-        r.expire(count_key, 10)
+    @wraps(method)
+    def invoker(url) -> str:
+        '''The wrapper function for caching the output. '''
+
+        redis_store.incr(f'count:{url}')
+        result = redis_store.get(f'result:{url}')
+        if result:
+            return result.decode('utf-8')
+        result = method(url)
+        redis_store.set(f'count:{url}', 0)
+        redis_store.setex(f'result:{url}', 10, result)
         return result
+    return invoker
 
-    return wrapper
 
-
-@track_url
+@data_cacher
 def get_page(url: str) -> str:
-    """Get a page from a website."""
-    resp = requests.get(url)
-    return resp.text
+    '''Returns the content of a URL after caching the request's response,
+       and tracking the request. '''
 
-
-if __name__ == '__main__':
-    ur = 'http://slowwly.robertomurray.co.uk/'
-    rl = 'delay/5000/url/http://www.google.co.uk'
-    url = ur + rl
-    print(get_page(url))
-    print(get_page(url))
-    print(get_page(url))
-    print(f"Access count: {r.get(f'count:{url}').decode('utf-8')}")
-    time.sleep(12)
-    print(get_page(url))
-    print(f"Access count: {r.get(f'count:{url}').decode('utf-8')}")
+    return requests.get(url).text
